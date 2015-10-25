@@ -1,0 +1,238 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Sreekumar Parameswaran Pillai"
+date: "October 23, 2015"
+output: html_document
+---
+
+Objective:
+
+Predict the manner in which they did the exercise that is the "classe" variable in the training set. 
+
+Methodology:
+
+Any other variables could be used to predict this.
+Create a report describing how the model was build, details of cross validation, the expected out of sample error and reasons for any specific choices.
+The Prediction model should be used to predict 20 different test cases. 
+
+Loading the required libraries:
+
+```{r,echo=FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(knitr)
+library(FactoMineR)
+library(randomForest)
+
+setwd("C:/Users/Sree/Documents/GitHub/PML-Assignment.git")
+
+```
+
+
+Setting the seed value as instructed in the assignment; for reproducability:
+
+```{r}
+
+set.seed(12345)
+
+rmna.strings <- c("NA","#DIV/0!","")
+
+training <- read.csv("pml-training.csv", na.strings=rmna.strings)
+testing <- read.csv("pml-training.csv", na.strings=rmna.strings)
+
+```
+
+Separating the dataset into training and test sets using the recommended ratio: 60:40
+
+```{r}
+
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+pmlTraining <- training[inTrain, ]
+pmlTesting <- training[-inTrain, ]
+dim(pmlTraining)
+dim(pmlTesting)
+
+```
+
+Cleaning the input data
+
+
+
+Removing NearZeroVariance variables from the input:
+
+
+```{r}
+
+nzv <- nearZeroVar(pmlTraining, saveMetrics=TRUE)
+myTraining <- pmlTraining[,nzv$nzv==FALSE]
+
+myTesting <- pmlTesting[,nzv$nzv==FALSE]
+
+```
+
+
+Removing the timestamp and username column that is irrelevant for the current analysis.  The first 6 columns are not required for model building.
+
+
+
+```{r}
+
+myTraining <- pmlTraining[ , 7:160]
+myTesting <- pmlTesting[ , 7:160]
+
+```
+
+
+
+```{r}
+
+trainingV3 <- myTraining
+for(i in 1:length(myTraining)) {
+    if( sum( is.na( myTraining[, i] ) ) /nrow(myTraining) >= .7) {
+        for(j in 1:length(trainingV3)) {
+            if( length( grep(names(myTraining[i]), names(trainingV3)[j]) ) == 1)  {
+                trainingV3 <- trainingV3[ , -j]
+            }   
+        } 
+    }
+}
+
+# Set back to the original variable name
+myTraining <- trainingV3
+rm(trainingV3)
+
+```
+
+
+
+```{r}
+
+trainCols <- colnames(myTraining)
+##testCols <- colnames(myTraining[, -54])  # remove the classe column
+myTesting <- myTesting[trainCols]         # ensure column are same across train and test datasets
+##myTesting <- testing[testCols]          
+
+dim(myTesting)
+
+```
+
+
+Feature Reduction [ Picking the right variables]
+It is necessary to identify the right variables that can give the prediction.  For we take the relative importance of the variables using the Random Forest Algorithm
+
+
+
+```{r}
+set.seed(12345)
+modelFit <- randomForest(classe~., data=myTraining, importance=TRUE, ntree=100)
+varImpPlot(modelFit)
+
+
+```
+
+
+A close look at the tree diagram tells us that roll_belt is the primary determinant among the corelates.  This is the reason for discarding yaw_belt.
+
+```{r}
+modelFit <- rpart(classe~., data=myTraining, method="class")
+prp(modelFit)
+
+```
+
+PCA using RandomForest
+======================
+
+```{r}
+qplot(roll_belt, magnet_dumbbell_y, colour=classe, data=myTraining)
+
+```
+
+
+
+```{r}
+
+## Multiple FActor Analysis
+
+## mfactorAnalysis <- MFA(base = myTraining, group = c(1, 13, 13, 13, 13, 1), type = c(rep("s",1), rep("s", 1), rep("s", ##1), rep("s", 1), rep("s", 1), rep("n",  1)), ncp = 2, name.group = c("num_win", "belt", "arm", "dumbell","forearm", ##"classe"), num.group.sup = c(1, 2)) 
+##plot(mfactorAnalysis,choix="ind",partial="all")
+
+```
+
+Modeling the relationship
+
+```{r}
+
+set.seed(12345)
+fitModel <- train(classe~roll_belt+num_window+pitch_belt+magnet_dumbbell_y+magnet_dumbbell_z+pitch_forearm+accel_dumbbell_y+roll_arm+roll_forearm,
+                  data=myTraining,
+                  method="rf",
+                  trControl=trainControl(method="cv",number=2),
+                  prox=TRUE,
+                  verbose=TRUE,
+                  allowParallel=TRUE)
+
+saveRDS(fitModel, "modelRF.Rds")
+fitModel <- readRDS("modelRF.Rds")
+
+```
+
+
+Accuracy of the Model
+
+```{r}
+predictions <- predict(fitModel, newdata=myTesting)
+confusionMat <- confusionMatrix(predictions, myTesting$classe)
+confusionMat
+
+```
+
+Error Analysis:
+
+```{r}
+missClass = function(values, predicted) {
+  sum(predicted != values) / length(values)
+}
+OOS_errRate = missClass(myTesting$classe, predictions)
+OOS_errRate
+
+```
+
+
+Submission:
+
+We predict the classification of the 20 observations:
+
+```{r}
+predictions <- predict(fitModel, newdata=myTesting)
+myTesting$classe <- predictions
+
+```
+
+Write the results in two columns (named problem_id and classe) and 20 rows of data:
+
+```{r}
+submit <- data.frame(problem_id = testing$problem_id, classe = predictions)
+write.csv(submit, file = "coursera-submission.csv", row.names = FALSE)
+```
+
+
+And we create twenty .TXT file that we will upload one by one in the Coursera website (the 20 files created are called problem_1.txt to problem_20.txt):
+
+```{r}
+answers = testing$classe
+write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+write_files(answers)
+
+```
+
+
