@@ -208,14 +208,14 @@ We predict the classification of the 20 observations:
 
 ```{r}
 predictions <- predict(fitModel, newdata=myTesting)
-myTesting$classe <- predictions
+testing$classe <- predictions
 
 ```
 
 Write the results in two columns (named problem_id and classe) and 20 rows of data:
 
 ```{r}
-submit <- data.frame(problem_id = testing$problem_id, classe = predictions)
+submit <- data.frame(problem_id = myTesting$problem_id, classe = predictions)
 write.csv(submit, file = "coursera-submission.csv", row.names = FALSE)
 ```
 
